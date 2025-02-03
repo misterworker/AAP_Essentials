@@ -1,0 +1,15 @@
+# Exclude virtual environment
+venv/
+
+# Exclude Python cache files
+__pycache__/
+*.pyc
+*.pyo
+
+# Exclude environment variables file
+.env
+
+# Exclude other unwanted files
+*.l
+*.sqlite
+*.db
