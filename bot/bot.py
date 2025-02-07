@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 from langchain_nvidia_ai_endpoints import ChatNVIDIA
 from langchain_core.messages import HumanMessage
-import asyncio, os, random
+import asyncio, os
 
 load_dotenv()
 
@@ -42,7 +42,7 @@ class PostContent(BaseModel):
     """""Validate response and provide feedback"""""
     ridiculous: bool = Field(description="Is the post utterly ridiculous/completely inappropriate? ")
     leaks_pii: bool = Field(description="Does the post expose any sensitive Personally Identifiable Information? ")
-    relevant_to_category: bool = Field(description="Is the content even remotely related to post category? Be very lenient with this.")
+    relevant_to_category: bool = Field(description="Is the content even remotely related to post category? Be fairly lenient with this.")
 
 OpenAI_bot = OpenAI_llm.with_structured_output(PostContent, method="function_calling")
 NVIDIA_bot = nemo_nvidia_llm.with_structured_output(PostContent, method="function_calling")
@@ -51,6 +51,7 @@ NVIDIA_bot = nemo_nvidia_llm.with_structured_output(PostContent, method="functio
 async def validate_post(request: Request):
     data = await request.json()
     content = data.get("content", "")
+    title = data.get("title", "")
     category = data.get("category", "")
 
     if not content:
@@ -59,31 +60,41 @@ async def validate_post(request: Request):
             status_code=400
         )
     
+    if not title:
+        return JSONResponse(
+            content={"error": "Title not found"},
+            status_code=400
+        )
+    
     if not category:
         return JSONResponse(
             content={"error": "Category not found"},
             status_code=400
         )
+    else:
+        if category == "A Level":
+            link = "https://www.thestudentroom.co.uk/forumdisplay.php?f=80&page={}"
+        elif category == "GCSE":
+            link = "https://www.thestudentroom.co.uk/forumdisplay.php?f=85&page={}"
+        elif category == "Study Support":
+            link = "https://www.thestudentroom.co.uk/forumdisplay.php?f=635&page={}"
+        elif category == "Job Experience":
+            link = "https://www.thestudentroom.co.uk/forumdisplay.php?f=201"
 
     try:
-        data = f"Post Category: {category}\nPost content:\n{content}"
+        data = f"Post Category: {category}\nPost content:\n{content}\nPost Title:{title}"
         prompt = (f"You are a bot that detects suitability of the post content for public posting.\n{data}")
-        random_choice = random.randint(1, 2)
-        match random_choice:
-            case (1): bot = OpenAI_bot
-            case (2): bot = NVIDIA_bot
         result = await asyncio.to_thread(NVIDIA_bot.invoke, prompt)
-        print("Result: ", result)
 
         try:
-            # Create tasks for each coroutine
-            prompt = ("Based on the post category, content and analysis results provided, create recommendations on where the user can improve on the results, "
-            f"limited to a single paragraph.\nCategory: {category}\ncontent: {content}\nAnlysis result: {result}")
+            prompt = ("Based on the post category, content, title and analysis results provided, provide recommendations to improve post engagement "
+            "limited to a single paragraph in point form. Add this link and let the user know that he can browse posts there and copy a few popular "
+            f"posts: {link}.\nData: {data}\nAnlysis result: {result}\n If analysis result indicates issues, provide "
+            "recommendations to address them first.")
             messages = [HumanMessage(content=prompt)]
 
             async def get_nemo_response():
                 await asyncio.sleep(10)
-                print("NVIDIA")
                 try:
                     response = await nemo_nvidia_llm.ainvoke(messages)
                     return response

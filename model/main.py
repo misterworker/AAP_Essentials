@@ -14,7 +14,7 @@ app = FastAPI()
 from fastapi.middleware.cors import CORSMiddleware
 app.add_middleware(
     CORSMiddleware,
-    # allow_origins=["http://localhost:3000", "https://work-advisor.vercel.app/post-prediction"],
+    # allow_origins=["https://work-advisor.vercel.app/post-prediction"],
     allow_origins=["http://localhost:3000", "https://work-advisor.vercel.app/post-prediction"],
     allow_credentials=True,
     allow_methods=["*"],
@@ -46,7 +46,6 @@ class_mapping = {
 
 @app.post("/predict")
 async def predict(request: Request):
-    # Get input data from request
     data = await request.json()
     
     post_content = data.get("post_content")
@@ -58,11 +57,11 @@ async def predict(request: Request):
 
     # Tokenize and pad post content
     post_sequence = tokenizer.texts_to_sequences([post_content])
-    post_padded = pad_sequences(post_sequence, maxlen=234)  # Ensure this matches the max_sequence_length used in training
+    post_padded = pad_sequences(post_sequence, maxlen=234)
 
     # Tokenize and pad post title
     title_sequence = title_tokenizer.texts_to_sequences([post_title])
-    title_padded = pad_sequences(title_sequence, maxlen=13)  # Ensure this matches the max_title_length used in training
+    title_padded = pad_sequences(title_sequence, maxlen=13)
 
     # One-hot encode the category
     category_encoded = category_encoder.transform(np.array([[category]]))
