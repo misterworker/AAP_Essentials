@@ -1,11 +1,13 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 from langchain_nvidia_ai_endpoints import ChatNVIDIA
 from langchain_core.messages import HumanMessage
 import asyncio, os
+
+from post_content import PostContent
+from suggestion_generation import Suggestion
 
 load_dotenv()
 
@@ -14,7 +16,7 @@ app = FastAPI()
 from fastapi.middleware.cors import CORSMiddleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "https://work-advisor.vercel.app/post-prediction"],
+    allow_origins=["http://localhost:3000", "https://work-advisor.vercel.app"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -38,14 +40,8 @@ nemo_nvidia_llm = ChatNVIDIA(
     api_key=NVIDIA_API_KEY,
 )
 
-class PostContent(BaseModel):
-    """""Validate response and provide feedback"""""
-    ridiculous: bool = Field(description="Is the post utterly ridiculous/completely inappropriate? ")
-    leaks_pii: bool = Field(description="Does the post expose any sensitive Personally Identifiable Information? ")
-    relevant_to_category: bool = Field(description="Is the content even remotely related to post category? Be fairly lenient with this.")
-
-OpenAI_bot = OpenAI_llm.with_structured_output(PostContent, method="function_calling")
-NVIDIA_bot = nemo_nvidia_llm.with_structured_output(PostContent, method="function_calling")
+PostContent_NVIDIA = nemo_nvidia_llm.with_structured_output(PostContent, method="function_calling")
+Suggestion_NVIDIA = nemo_nvidia_llm.with_structured_output(Suggestion, method="function_calling")
     
 @app.post("/validate_post")
 async def validate_post(request: Request):
@@ -73,18 +69,18 @@ async def validate_post(request: Request):
         )
     else:
         if category == "A Level":
-            link = "https://www.thestudentroom.co.uk/forumdisplay.php?f=80&page={}"
+            link = "https://www.thestudentroom.co.uk/forumdisplay.php?f=80"
         elif category == "GCSE":
-            link = "https://www.thestudentroom.co.uk/forumdisplay.php?f=85&page={}"
+            link = "https://www.thestudentroom.co.uk/forumdisplay.php?f=85"
         elif category == "Study Support":
-            link = "https://www.thestudentroom.co.uk/forumdisplay.php?f=635&page={}"
+            link = "https://www.thestudentroom.co.uk/forumdisplay.php?f=635"
         elif category == "Job Experience":
             link = "https://www.thestudentroom.co.uk/forumdisplay.php?f=201"
 
     try:
         data = f"Post Category: {category}\nPost content:\n{content}\nPost Title:{title}"
         prompt = (f"You are a bot that detects suitability of the post content for public posting.\n{data}")
-        result = await asyncio.to_thread(NVIDIA_bot.invoke, prompt)
+        result = await asyncio.to_thread(PostContent_NVIDIA.invoke, prompt)
 
         try:
             prompt = ("Based on the post category, content, title and analysis results provided, provide recommendations to improve post engagement "
@@ -120,11 +116,15 @@ async def validate_post(request: Request):
             # If neither task completes within 20 seconds, return fallback response
             print("Both tasks took too long. Returning fallback response.")
             response.content = "Response took too long. Sorry about that. Please try again."
-
-        print("Content: ", response.content)
             
         if not response.content: response.content = "Response unavailable. Sorry😛. Error te-0"
-        return JSONResponse(content={"response": response.content, "result": dict(result)})
+        try:
+            prompt = (f"User Input: {data}\nPrepare the new post based on the suggestions from this:\n{response.content}")
+            suggestion = await asyncio.to_thread(Suggestion_NVIDIA.invoke, prompt)
+            return JSONResponse(content={"response": response.content, "result": dict(result), "suggestion": dict(suggestion)})
+        except:
+            suggestion = {"new_post_title": "", "new_post_content": ""}
+            return JSONResponse(content={"response": response.content, "result": dict(result), "suggestion": dict(suggestion)})
     
     except Exception as e:
         print("error: ", e)
